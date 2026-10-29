@@ -1,0 +1,385 @@
+// Schema do MyFinance
+// Banco: Postgres gerenciado na nuvem (Neon/Supabase) — ver prisma/MIGRATION.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Usuário (sistema é single-user, mas modelado para permitir expansão futura)
+// ---------------------------------------------------------------------------
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  incomes              Income[]
+  transactions         Transaction[]
+  categories           Category[]
+  budgets              Budget[]
+  goals                Goal[]
+  bills                Bill[]
+  recurringTemplates   RecurringTemplate[]
+  auditLogs            AuditLog[]
+  telegramLink         TelegramLink?
+  backupLogs           BackupLog[]
+  creditCards          CreditCard[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Renda mensal (histórico de alterações de renda fixa/variável)
+// ---------------------------------------------------------------------------
+model Income {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  description String
+  amount      Decimal  @db.Decimal(12, 2)
+  isFixed     Boolean  @default(true)
+  referenceMonth DateTime // primeiro dia do mês de referência
+  // dia do mês em que o pagamento efetivamente cai (ex: salário todo dia 5)
+  // — opcional; sem isso, o lançamento gerado usa o 1º dia do mês
+  payDay      Int?
+  createdAt   DateTime @default(now())
+
+  // Cada renda cadastrada aqui gera automaticamente um lançamento de Receita
+  // vinculado (ver Transaction.incomeId), pra contar de verdade no saldo e
+  // no health score do dashboard do mês de referência. Excluir a renda
+  // exclui o lançamento junto (onDelete: Cascade, do lado de Transaction).
+  transactions Transaction[]
+
+  @@index([userId, referenceMonth])
+  @@map("incomes")
+}
+
+// ---------------------------------------------------------------------------
+// Categorias (hierárquicas: categoria pai + subcategoria)
+// ---------------------------------------------------------------------------
+model Category {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  type      TransactionType
+  color     String   @default("#6366f1")
+  icon      String?
+  parentId  String?
+  parent    Category?  @relation("CategoryToSub", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryToSub")
+
+  transactions Transaction[]
+  budgets      Budget[]
+  keywordRules CategoryKeywordRule[]
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, type])
+  @@map("categories")
+}
+
+// Regras de categorização inteligente: palavra-chave -> categoria
+model CategoryKeywordRule {
+  id         String   @id @default(uuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  keyword    String
+  // quantas vezes essa regra já acertou (usado para ranquear sugestões)
+  hitCount   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([keyword])
+  @@map("category_keyword_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Lançamentos (receitas e despesas)
+// ---------------------------------------------------------------------------
+model Transaction {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            TransactionType
+  amount          Decimal         @db.Decimal(12, 2)
+  categoryId      String?
+  category        Category?       @relation(fields: [categoryId], references: [id])
+  date            DateTime
+  description     String
+  paymentMethod   PaymentMethod   @default(OTHER)
+  recurrenceType  RecurrenceType  @default(NONE)
+  installmentNumber Int?          // parcela atual (se parcelado)
+  installmentTotal  Int?          // total de parcelas (se parcelado)
+  recurringTemplateId String?
+  recurringTemplate   RecurringTemplate? @relation(fields: [recurringTemplateId], references: [id])
+  attachmentUrl   String?         // comprovante (imagem/pdf) salvo em /uploads
+  source          TransactionSource @default(MANUAL)
+  creditCardId    String?
+  creditCard      CreditCard?     @relation(fields: [creditCardId], references: [id])
+  // agrupa as parcelas geradas automaticamente de uma mesma compra parcelada
+  installmentGroupId String?
+  // presente quando este lançamento foi gerado automaticamente a partir de
+  // uma renda cadastrada em Configurações (ver Income) — excluir a renda
+  // exclui esse lançamento junto
+  incomeId        String?
+  income          Income?         @relation(fields: [incomeId], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([userId, date])
+  @@index([userId, type, date])
+  @@index([categoryId])
+  @@index([creditCardId])
+  @@index([installmentGroupId])
+  @@index([incomeId])
+  @@map("transactions")
+}
+
+enum TransactionSource {
+  MANUAL
+  TELEGRAM_BOT
+  BANK_IMPORT
+}
+
+// ---------------------------------------------------------------------------
+// Template de recorrência (assinatura, salário, aluguel etc.)
+// Gera transactions automaticamente via job agendado
+// ---------------------------------------------------------------------------
+model RecurringTemplate {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  description   String
+  amount        Decimal  @db.Decimal(12, 2)
+  type          TransactionType
+  categoryId    String?
+  dayOfMonth    Int      // dia do mês em que o lançamento/conta é gerado
+  active        Boolean  @default(true)
+  isSubscription Boolean @default(false) // marcado como assinatura, para detecção de "não usada"
+  lastGeneratedAt DateTime?
+  createdAt     DateTime @default(now())
+
+  // Alerta customizado opcional aplicado a cada conta gerada por este
+  // template: ao invés do padrão (dias antes + horário global), calcula um
+  // customAlertAt específico em cima do vencimento de cada execução mensal
+  // — ex: "avisar 5 dias antes, às 09:00" vira uma data/hora diferente a
+  // cada mês, igual um lembrete recorrente de calendário.
+  alertDaysBefore Int?
+  alertTimeOfDay  String?
+
+  // recorrência de despesa pode ser atribuída a um cartão — toda conta
+  // gerada mensalmente a partir daqui já nasce vinculada a esse cartão
+  creditCardId  String?
+  creditCard    CreditCard? @relation(fields: [creditCardId], references: [id])
+
+  transactions  Transaction[]
+  bills         Bill[]
+
+  @@index([creditCardId])
+  @@map("recurring_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Contas a pagar/receber (agendamento de vencimento)
+// ---------------------------------------------------------------------------
+model Bill {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  description   String
+  amount        Decimal   @db.Decimal(12, 2)
+  type          TransactionType
+  dueDate       DateTime
+  status        BillStatus @default(PENDING)
+  paidAt        DateTime?
+  reminderDaysBefore Json  @default("[3,1,0]") // array de dias antes do vencimento para alertar
+  // Alerta com data/hora específica definida manualmente (tipo um lembrete de
+  // evento de calendário) — quando preenchido, ignora reminderDaysBefore e o
+  // horário padrão do usuário, e dispara exatamente nesse momento.
+  customAlertAt DateTime?
+  recurringTemplateId String?
+  recurringTemplate   RecurringTemplate? @relation(fields: [recurringTemplateId], references: [id])
+  // cartão ao qual essa conta está atribuída (herdado da recorrência, se
+  // veio de uma, ou escolhido manualmente) — quando a conta é paga, o
+  // lançamento gerado carrega esse mesmo cartão, contando na fatura dele
+  creditCardId  String?
+  creditCard    CreditCard? @relation(fields: [creditCardId], references: [id])
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, status, dueDate])
+  @@index([creditCardId])
+  @@map("bills")
+}
+
+// ---------------------------------------------------------------------------
+// Orçamento por categoria/mês
+// ---------------------------------------------------------------------------
+model Budget {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId     String
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  referenceMonth DateTime // primeiro dia do mês
+  limitAmount    Decimal  @db.Decimal(12, 2)
+  alertThresholdPercent Int @default(80)
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, categoryId, referenceMonth])
+  @@map("budgets")
+}
+
+// ---------------------------------------------------------------------------
+// Cofrinhos / metas de economia
+// ---------------------------------------------------------------------------
+model Goal {
+  id            String     @id @default(uuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  icon          String?
+  targetAmount  Decimal    @db.Decimal(12, 2)
+  currentAmount Decimal    @db.Decimal(12, 2) @default(0)
+  targetDate    DateTime?
+  status        GoalStatus @default(IN_PROGRESS)
+  createdAt     DateTime   @default(now())
+
+  // Meta de aporte recorrente: quanto guardar por mês e em que dia lembrar
+  // via Telegram (independente do cron de Bill — cofrinho não tem vencimento)
+  monthlyTarget Decimal?   @db.Decimal(12, 2)
+  reminderDay   Int?       // dia do mês (1-28) pra lembrar de guardar
+
+  contributions GoalContribution[]
+
+  @@map("goals")
+}
+
+model GoalContribution {
+  id        String   @id @default(uuid())
+  goalId    String
+  goal      Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  amount    Decimal  @db.Decimal(12, 2)
+  date      DateTime @default(now())
+  note      String?
+
+  @@map("goal_contributions")
+}
+
+// ---------------------------------------------------------------------------
+// Cartão de crédito (controle manual — limite, fechamento e fatura)
+// ---------------------------------------------------------------------------
+model CreditCard {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String   // ex: "Nubank", "Inter Black"
+  brand        String?  // ex: "Mastercard", "Visa"
+  limitAmount  Decimal  @db.Decimal(12, 2)
+  closingDay   Int      // dia do mês em que a fatura fecha
+  dueDay       Int      // dia do mês em que a fatura vence
+  color        String   @default("#8405e0")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  transactions Transaction[]
+  recurringTemplates RecurringTemplate[]
+  bills        Bill[]
+
+  @@map("credit_cards")
+}
+
+// ---------------------------------------------------------------------------
+// Vínculo com o Telegram
+// ---------------------------------------------------------------------------
+model TelegramLink {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId     String   @unique
+  linkCode   String?  // código temporário usado no /start para vincular
+  linkedAt   DateTime @default(now())
+
+  // Configuração de alertas automáticos de contas a pagar/receber
+  alertsEnabled       Boolean @default(true)
+  defaultReminderDays Json    @default("[3,1,0]") // dias antes do vencimento, usado como padrão ao criar uma conta
+  alertTime           String  @default("08:00") // horário "HH:mm" em que os lembretes diários/recorrentes são enviados
+  dueDateAlertTime    String? // horário "HH:mm" específico pro aviso do PRÓPRIO dia do vencimento (dia 0); se vazio, usa alertTime
+
+  @@map("telegram_links")
+}
+
+// ---------------------------------------------------------------------------
+// Log de auditoria (alterações/exclusões de lançamentos)
+// ---------------------------------------------------------------------------
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entity     String   // ex: "transaction", "bill", "budget"
+  entityId   String
+  action     String   // "create" | "update" | "delete"
+  changes    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, entity, entityId])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Log de backups automáticos do banco
+// ---------------------------------------------------------------------------
+model BackupLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  @@map("backup_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Enums compartilhados
+// ---------------------------------------------------------------------------
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum RecurrenceType {
+  NONE
+  FIXED_MONTHLY
+  INSTALLMENT
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+  BANK_TRANSFER
+  BOLETO
+  OTHER
+}
+
+enum BillStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELED
+}
+
+enum GoalStatus {
+  IN_PROGRESS
+  COMPLETED
+  PAUSED
+}
