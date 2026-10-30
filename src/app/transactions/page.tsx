@@ -42,6 +42,9 @@ interface Transaction {
   billId?: string | null;
   billStatus?: "PENDING" | "OVERDUE" | string;
   attachmentUrl?: string | null;
+  installmentGroupId?: string | null;
+  installmentNumber?: number | null;
+  installmentTotal?: number | null;
 }
 
 export default function TransactionsPage() {
@@ -58,6 +61,8 @@ export default function TransactionsPage() {
   // conta (Bill) real pendente/vencida clicada no extrato — ações aqui
   // batem em /bills/:id, não em /transactions/:id
   const [billSheet, setBillSheet] = useState<Transaction | null>(null);
+  const [installmentDeleteSheet, setInstallmentDeleteSheet] = useState<Transaction | null>(null);
+  const [installmentDeleteLoading, setInstallmentDeleteLoading] = useState(false);
   const [billActionLoading, setBillActionLoading] = useState(false);
   // Mês em exibição no extrato — por padrão só o mês atual aparece, pra não
   // poluir a tela com o histórico inteiro; o usuário navega entre meses com
@@ -258,14 +263,35 @@ export default function TransactionsPage() {
     }
   }
 
-  async function handleDelete(id: string, e?: React.MouseEvent) {
+  async function handleDelete(t: Transaction, e?: React.MouseEvent) {
     e?.stopPropagation();
+    // Lançamento parcelado — abre opções (só essa parcela ou todas de uma
+    // vez) em vez de excluir direto, pra não obrigar apagar uma por uma.
+    if (t.installmentGroupId) {
+      setInstallmentDeleteSheet(t);
+      return;
+    }
     if (!window.confirm("Excluir esse lançamento?")) return;
     try {
-      await api(`/transactions/${id}`, { method: "DELETE" });
+      await api(`/transactions/${t.id}`, { method: "DELETE" });
       emitDataChanged();
     } catch (err: any) {
       alert(err.message || "Erro ao excluir lançamento");
+    }
+  }
+
+  async function handleDeleteInstallment(scope: "one" | "group") {
+    if (!installmentDeleteSheet) return;
+    setInstallmentDeleteLoading(true);
+    try {
+      const qs = scope === "group" ? "?deleteGroup=true" : "";
+      await api(`/transactions/${installmentDeleteSheet.id}${qs}`, { method: "DELETE" });
+      setInstallmentDeleteSheet(null);
+      emitDataChanged();
+    } catch (err: any) {
+      alert(err.message || "Erro ao excluir lançamento");
+    } finally {
+      setInstallmentDeleteLoading(false);
     }
   }
 
@@ -484,7 +510,7 @@ export default function TransactionsPage() {
                         </span>
                         {!t.projected && !t.billId && (
                           <button
-                            onClick={(e) => handleDelete(t.id, e)}
+                            onClick={(e) => handleDelete(t, e)}
                             className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-gray-300 hover:text-expense-600 hover:bg-expense-50 dark:hover:bg-expense-500/10 transition-colors"
                             aria-label="Excluir"
                           >
@@ -728,6 +754,42 @@ export default function TransactionsPage() {
                 className="w-full py-3 rounded-xl text-sm font-semibold text-expense-600 hover:bg-expense-50 dark:hover:bg-expense-500/10 transition-colors disabled:opacity-60"
               >
                 Excluir conta
+              </button>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={!!installmentDeleteSheet}
+        onClose={() => setInstallmentDeleteSheet(null)}
+        title="Excluir parcela"
+      >
+        {installmentDeleteSheet && (
+          <div className="space-y-4">
+            <div className="card !bg-gray-50 dark:!bg-white/5">
+              <p className="text-sm font-medium">{installmentDeleteSheet.description}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Parcela {installmentDeleteSheet.installmentNumber ?? "?"} de{" "}
+                {installmentDeleteSheet.installmentTotal ?? "?"}
+              </p>
+              <p className="text-lg font-bold mt-2">{currency(Number(installmentDeleteSheet.amount))}</p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => handleDeleteInstallment("group")}
+                disabled={installmentDeleteLoading}
+                className="btn-primary w-full disabled:opacity-60 !bg-expense-500 hover:!bg-expense-600"
+              >
+                {installmentDeleteLoading ? "Excluindo..." : "Excluir todas as parcelas"}
+              </button>
+              <button
+                onClick={() => handleDeleteInstallment("one")}
+                disabled={installmentDeleteLoading}
+                className="btn-secondary w-full disabled:opacity-60"
+              >
+                Excluir só essa parcela
               </button>
             </div>
           </div>
