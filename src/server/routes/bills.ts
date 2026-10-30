@@ -94,7 +94,13 @@ export async function billRoutes(app: FastifyInstance) {
   app.post("/bills/:id/pay", async (req, reply) => {
     const userId = currentUserId(req);
     const { id } = req.params as { id: string };
-    const owned = await prisma.bill.findFirst({ where: { id, userId } });
+    // Bill em si não tem coluna de categoria — quando a conta veio de uma
+    // recorrência, a categoria mora no template, então incluímos aqui pra
+    // o lançamento gerado ao pagar não perder essa informação.
+    const owned = await prisma.bill.findFirst({
+      where: { id, userId },
+      include: { recurringTemplate: { select: { categoryId: true } } },
+    });
     if (!owned) return reply.code(404).send({ error: "Conta não encontrada" });
 
     const [bill, transaction] = await prisma.$transaction([
@@ -107,6 +113,7 @@ export async function billRoutes(app: FastifyInstance) {
           userId,
           type: owned.type,
           amount: owned.amount,
+          categoryId: owned.recurringTemplate?.categoryId ?? null,
           date: new Date(),
           description: `Pagamento: ${owned.description}`,
           creditCardId: owned.creditCardId ?? null,

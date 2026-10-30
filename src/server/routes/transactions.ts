@@ -127,9 +127,11 @@ export async function transactionRoutes(app: FastifyInstance) {
     // Contas (Bill) ainda pendentes/vencidas no período filtrado — antes só
     // apareciam na tela "Contas", separada do Extrato, então uma conta
     // cadastrada manualmente por lá (não vinda de recorrência) não tinha
-    // como ser marcada como paga a partir daqui. categoryId não se aplica a
-    // Bill (não tem categoria), então um filtro de categoria ativo exclui
-    // contas, igual já faria com uma despesa sem categoria.
+    // como ser marcada como paga a partir daqui. O model Bill em si não tem
+    // coluna de categoria — mas quando a conta veio de uma recorrência
+    // (recurringTemplateId), a categoria mora no template, então resolvemos
+    // ela aqui pra não aparecer "sem categoria" à toa no Extrato. Uma conta
+    // avulsa (sem template) continua sem categoria mesmo, isso é esperado.
     let billResults: typeof items = [];
     if (!q.categoryId) {
       const billWhere: any = { userId, status: { in: ["PENDING", "OVERDUE"] } };
@@ -141,30 +143,43 @@ export async function transactionRoutes(app: FastifyInstance) {
       if (q.type) billWhere.type = q.type;
       if (q.search) billWhere.description = { contains: q.search };
 
-      const bills = await prisma.bill.findMany({ where: billWhere });
-      billResults = bills.map((b) => ({
-        id: b.id,
-        userId,
-        type: b.type,
-        amount: b.amount as any,
-        categoryId: null,
-        category: null,
-        date: b.dueDate,
-        description: b.description,
-        paymentMethod: "OTHER",
-        recurrenceType: "NONE",
-        installmentNumber: null,
-        installmentTotal: null,
-        recurringTemplateId: b.recurringTemplateId,
-        attachmentUrl: null,
-        source: "MANUAL",
-        creditCardId: b.creditCardId,
-        installmentGroupId: null,
-        incomeId: null,
-        projected: false,
-        billId: b.id,
-        billStatus: b.status,
-      })) as any;
+      const bills = await prisma.bill.findMany({
+        where: billWhere,
+        include: { recurringTemplate: { select: { categoryId: true } } },
+      });
+      const billCategoryIds = [
+        ...new Set(bills.map((b) => b.recurringTemplate?.categoryId).filter((id): id is string => !!id)),
+      ];
+      const billCategoriesById = billCategoryIds.length
+        ? new Map((await prisma.category.findMany({ where: { id: { in: billCategoryIds } } })).map((c) => [c.id, c]))
+        : new Map();
+
+      billResults = bills.map((b) => {
+        const categoryId = b.recurringTemplate?.categoryId ?? null;
+        return {
+          id: b.id,
+          userId,
+          type: b.type,
+          amount: b.amount as any,
+          categoryId,
+          category: categoryId ? billCategoriesById.get(categoryId) ?? null : null,
+          date: b.dueDate,
+          description: b.description,
+          paymentMethod: "OTHER",
+          recurrenceType: "NONE",
+          installmentNumber: null,
+          installmentTotal: null,
+          recurringTemplateId: b.recurringTemplateId,
+          attachmentUrl: null,
+          source: "MANUAL",
+          creditCardId: b.creditCardId,
+          installmentGroupId: null,
+          incomeId: null,
+          projected: false,
+          billId: b.id,
+          billStatus: b.status,
+        };
+      }) as any;
     }
 
     const combined = [...projectedResults, ...billResults, ...items].sort(
