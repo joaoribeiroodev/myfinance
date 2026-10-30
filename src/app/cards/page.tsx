@@ -161,7 +161,7 @@ export default function CardsPage() {
   return (
     <div className="space-y-5">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold tracking-tight">Cartões</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Cartões</h1>
         <button
           onClick={() => {
             setEditingId(null);
@@ -178,7 +178,7 @@ export default function CardsPage() {
       </p>
 
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2].map((i) => (
             <div key={i} className="skeleton h-40 rounded-3xl" />
           ))}
@@ -190,7 +190,7 @@ export default function CardsPage() {
         </div>
       ) : (
         <StaggerList>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {cards.map((c) => (
               <StaggerItem key={c.id}>
                 <div
@@ -245,7 +245,7 @@ export default function CardsPage() {
                     </div>
                   </div>
 
-                  <p className="text-2xl font-extrabold mt-4">{currency(c.currentInvoice.committed)}</p>
+                  <p className="text-2xl font-extrabold tabular-nums mt-4">{currency(c.currentInvoice.committed)}</p>
                   <p className="text-xs text-white/60">fatura atual · fecha {fullDate(c.currentInvoice.cycleEnd)}</p>
 
                   <div className="mt-3 h-2 rounded-full bg-white/15 overflow-hidden">

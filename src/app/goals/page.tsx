@@ -110,14 +110,14 @@ export default function GoalsPage() {
   return (
     <div className="space-y-5">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold tracking-tight">Cofrinhos</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Cofrinhos</h1>
         <button onClick={() => setFormOpen(true)} className="btn-primary !px-4 !py-2.5 text-sm">
           + Criar
         </button>
       </header>
 
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2].map((i) => (
             <div key={i} className="skeleton h-36 rounded-2xl" />
           ))}
@@ -129,7 +129,7 @@ export default function GoalsPage() {
         </div>
       ) : (
         <StaggerList>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {goals.map((g) => (
               <StaggerItem key={g.id}>
                 <div className={clsx("card", g.status === "PAUSED" && "opacity-60")}>
@@ -150,7 +150,7 @@ export default function GoalsPage() {
                   </div>
                   <Progress percent={g.progressPercent} color="brand" />
                   <p className="text-sm text-gray-500 my-2">
-                    <span className="font-semibold text-gray-900 dark:text-gray-100">{currency(Number(g.currentAmount))}</span> de{" "}
+                    <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">{currency(Number(g.currentAmount))}</span> de{" "}
                     {currency(Number(g.targetAmount))} · {g.progressPercent}%
                   </p>
                   {g.estimatedCompletionDate && (

@@ -114,9 +114,9 @@ export default function BillsPage() {
   const settled = bills.filter((b) => b.status === "PAID" || b.status === "CANCELED");
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:max-w-4xl lg:mx-auto">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold tracking-tight">Contas</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Contas</h1>
         <button onClick={() => setFormOpen(true)} className="btn-primary !px-4 !py-2.5 text-sm">
           + Agendar
         </button>
@@ -151,7 +151,7 @@ export default function BillsPage() {
                           <p className="text-xs text-gray-400">{shortDate(b.dueDate)}</p>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-sm font-bold">{currency(Number(b.amount))}</p>
+                          <p className="text-sm font-bold tabular-nums">{currency(Number(b.amount))}</p>
                           <span className={clsx("pill mt-0.5", statusStyle[b.status])}>{statusLabel[b.status]}</span>
                         </div>
                         <button onClick={() => handlePay(b.id)} className="btn-secondary !px-3 !py-2 text-xs shrink-0">
@@ -193,7 +193,7 @@ export default function BillsPage() {
                       <p className="text-sm font-medium truncate line-through">{b.description}</p>
                       <p className="text-xs text-gray-400">{shortDate(b.dueDate)}</p>
                     </div>
-                    <p className="text-sm font-semibold">{currency(Number(b.amount))}</p>
+                    <p className="text-sm font-semibold tabular-nums">{currency(Number(b.amount))}</p>
                     <span className={clsx("pill", statusStyle[b.status])}>{statusLabel[b.status]}</span>
                     <button
                       onClick={() => handleDelete(b.id)}

@@ -80,7 +80,7 @@ function IncomeSection() {
                 {i.payDay ? <span className="text-xs text-gray-400 ml-1">· dia {i.payDay}</span> : null}
               </span>
               <div className="flex items-center gap-2">
-                <span className="font-semibold">{currency(Number(i.amount))}</span>
+                <span className="font-semibold tabular-nums">{currency(Number(i.amount))}</span>
                 <button onClick={() => handleDelete(i.id)} className="text-gray-300 hover:text-expense-600">
                   ✕
                 </button>
@@ -341,7 +341,7 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-5 max-w-xl">
-      <h1 className="text-xl font-extrabold tracking-tight">Configurações</h1>
+      <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Configurações</h1>
 
       <IncomeSection />
 

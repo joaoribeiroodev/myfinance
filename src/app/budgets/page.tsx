@@ -73,7 +73,7 @@ export default function BudgetsPage() {
   return (
     <div className="space-y-5">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold tracking-tight">Orçamentos</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Orçamentos</h1>
         <button onClick={() => setFormOpen(true)} className="btn-primary !px-4 !py-2.5 text-sm">
           + Definir
         </button>
@@ -81,7 +81,7 @@ export default function BudgetsPage() {
       <p className="text-sm text-gray-400">Tetos de gasto por categoria neste mês.</p>
 
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2].map((i) => (
             <div key={i} className="skeleton h-28 rounded-2xl" />
           ))}
@@ -93,7 +93,7 @@ export default function BudgetsPage() {
         </div>
       ) : (
         <StaggerList>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {budgets.map((b) => (
               <StaggerItem key={b.id}>
                 <div className="card">

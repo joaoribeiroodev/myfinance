@@ -350,9 +350,9 @@ export default function TransactionsPage() {
   }, {});
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:max-w-4xl lg:mx-auto">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-extrabold tracking-tight">Lançamentos</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Lançamentos</h1>
         <button
           onClick={() => {
             setEditingId(null);

@@ -97,7 +97,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-xl font-extrabold tracking-tight">Relatórios</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Relatórios</h1>
         <p className="text-sm text-gray-400 mt-1">
           Planilhas XLSX com lançamentos, resumo por categoria e totais do período.
         </p>
