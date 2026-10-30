@@ -93,7 +93,7 @@ export default function DashboardPage() {
             {greeting()}
             {userName ? `, ${userName}` : ""} 👋
           </p>
-          <h1 className="text-xl font-extrabold tracking-tight">Visão geral</h1>
+          <h1 className="text-xl lg:text-2xl font-extrabold tracking-tight">Visão geral</h1>
         </div>
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-white/5 rounded-full px-1">
           <button
@@ -117,99 +117,138 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* Cartão de saldo estilo cartão bancário */}
-      <div className="card-gradient animate-pop">
-        <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
-        <p className="text-sm text-white/70">Saldo disponível</p>
-        <AnimatedCurrency value={summary.availableBalance} className="text-3xl font-extrabold tracking-tight block mt-1" />
-        {summary.hasProjectedRecurring && (
-          <p className="text-[11px] text-white/60 mt-1">Inclui recorrências ainda não lançadas este mês (projetado)</p>
-        )}
-        {summary.reservedInGoals > 0 && (
-          <p className="text-xs text-white/60 mt-1">
-            + {currency(summary.reservedInGoals)} guardados em cofrinhos 🐷
-          </p>
-        )}
-        <div className="flex gap-5 mt-5 relative z-10">
-          <div>
-            <p className="text-[11px] text-white/60 flex items-center gap-1">↑ Receitas</p>
-            <p className="text-sm font-semibold">{currency(summary.totalIncome)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-white/60 flex items-center gap-1">↓ Despesas</p>
-            <p className="text-sm font-semibold">{currency(summary.totalExpense)}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="card">
-          <p className="text-xs text-gray-400 mb-1">Saúde financeira</p>
-          <p className={`text-2xl font-extrabold ${health.color}`}>
-            {summary.healthScore === null ? "—" : <AnimatedPercent value={summary.healthScore} />}
-            {summary.healthScore !== null && <span className="text-sm font-medium text-gray-400">/100</span>}
-          </p>
-          <Progress percent={summary.healthScore ?? 0} color={health.bar} className="mt-2" />
-          <p className={`text-[11px] mt-1 font-medium ${health.color}`}>{health.label}</p>
-        </div>
-        <div className="card">
-          <p className="text-xs text-gray-400 mb-1">Orçamento usado</p>
-          <p className="text-2xl font-extrabold">
-            {summary.budgetUsagePercent === null ? "—" : <AnimatedPercent value={summary.budgetUsagePercent} />}
-            {summary.budgetUsagePercent !== null && <span className="text-sm font-medium text-gray-400">%</span>}
-          </p>
-          {summary.budgetUsagePercent !== null ? (
-            <Progress
-              percent={summary.budgetUsagePercent}
-              color={summary.budgetUsagePercent >= 100 ? "expense" : summary.budgetUsagePercent >= 80 ? "amber" : "brand"}
-              className="mt-2"
+      {/* Duas colunas no desktop: coluna principal (saldo + lançamentos do
+          mês) à esquerda, resumo (saúde/orçamento/vencimentos) numa barra
+          lateral à direita — no mobile colapsa pra uma coluna só, na mesma
+          ordem de leitura. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+        <div className="lg:col-span-2 space-y-5">
+          {/* Cartão de saldo estilo cartão bancário */}
+          <div className="card-gradient animate-pop">
+            <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
+            <p className="text-sm text-white/70">Saldo disponível</p>
+            <AnimatedCurrency
+              value={summary.availableBalance}
+              className="text-4xl lg:text-5xl font-extrabold tracking-tight tabular-nums block mt-1"
             />
-          ) : (
-            <p className="text-[11px] mt-2 text-gray-400">Nenhum orçamento definido</p>
-          )}
-        </div>
-      </div>
+            {summary.hasProjectedRecurring && (
+              <p className="text-[11px] text-white/60 mt-1">Inclui recorrências ainda não lançadas este mês (projetado)</p>
+            )}
+            {summary.reservedInGoals > 0 && (
+              <p className="text-xs text-white/60 mt-1">
+                + {currency(summary.reservedInGoals)} guardados em cofrinhos 🐷
+              </p>
+            )}
+            <div className="flex gap-5 mt-5 relative z-10">
+              <div>
+                <p className="text-[11px] text-white/60 flex items-center gap-1">↑ Receitas</p>
+                <p className="text-sm font-semibold tabular-nums">{currency(summary.totalIncome)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-white/60 flex items-center gap-1">↓ Despesas</p>
+                <p className="text-sm font-semibold tabular-nums">{currency(summary.totalExpense)}</p>
+              </div>
+            </div>
+          </div>
 
-      <div className="card">
-        <h2 className="font-semibold mb-3 text-sm">
-          Receitas e despesas de {dayjs(month + "-01").format("MMMM/YYYY")}
-        </h2>
-        {summary.monthItems.length === 0 ? (
-          <p className="text-sm text-gray-400 py-2">Nada previsto pra esse mês.</p>
-        ) : (
-          <StaggerList>
-            <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-80 overflow-y-auto">
-              {summary.monthItems.map((item) => (
-                <StaggerItem key={item.id}>
-                  <li className="py-2.5 flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center text-base shrink-0">
-                      {categoryIcon(item.description)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate flex items-center gap-1.5">
-                        {item.description}
-                        {item.projected && (
-                          <span className="pill bg-gray-100 dark:bg-white/5 text-gray-400 !px-1.5 !py-0.5 text-[10px]">
-                            projetado
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-gray-400">{shortDate(item.date)}</p>
-                    </div>
-                    <span
-                      className={`text-sm font-semibold shrink-0 ${
-                        item.type === "INCOME" ? "text-income-600 dark:text-income-400" : "text-expense-600 dark:text-expense-400"
-                      }`}
-                    >
-                      {item.type === "INCOME" ? "+" : "-"}
-                      {currency(item.amount)}
-                    </span>
-                  </li>
-                </StaggerItem>
-              ))}
-            </ul>
-          </StaggerList>
-        )}
+          <div className="card">
+            <h2 className="font-semibold mb-3 text-sm">
+              Receitas e despesas de {dayjs(month + "-01").format("MMMM/YYYY")}
+            </h2>
+            {summary.monthItems.length === 0 ? (
+              <p className="text-sm text-gray-400 py-2">Nada previsto pra esse mês.</p>
+            ) : (
+              <StaggerList>
+                <ul className="divide-y divide-gray-100 dark:divide-white/5 max-h-80 overflow-y-auto">
+                  {summary.monthItems.map((item) => (
+                    <StaggerItem key={item.id}>
+                      <li className="py-2.5 flex items-center gap-3">
+                        <span className="w-9 h-9 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center text-base shrink-0">
+                          {categoryIcon(item.description)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                            {item.description}
+                            {item.projected && (
+                              <span className="pill bg-gray-100 dark:bg-white/5 text-gray-400 !px-1.5 !py-0.5 text-[10px]">
+                                projetado
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-400">{shortDate(item.date)}</p>
+                        </div>
+                        <span
+                          className={`text-sm font-semibold tabular-nums shrink-0 ${
+                            item.type === "INCOME" ? "text-income-600 dark:text-income-400" : "text-expense-600 dark:text-expense-400"
+                          }`}
+                        >
+                          {item.type === "INCOME" ? "+" : "-"}
+                          {currency(item.amount)}
+                        </span>
+                      </li>
+                    </StaggerItem>
+                  ))}
+                </ul>
+              </StaggerList>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
+            <div className="card">
+              <p className="text-xs text-gray-400 mb-1">Saúde financeira</p>
+              <p className={`text-2xl font-extrabold tabular-nums ${health.color}`}>
+                {summary.healthScore === null ? "—" : <AnimatedPercent value={summary.healthScore} />}
+                {summary.healthScore !== null && <span className="text-sm font-medium text-gray-400">/100</span>}
+              </p>
+              <Progress percent={summary.healthScore ?? 0} color={health.bar} className="mt-2" />
+              <p className={`text-[11px] mt-1 font-medium ${health.color}`}>{health.label}</p>
+            </div>
+            <div className="card">
+              <p className="text-xs text-gray-400 mb-1">Orçamento usado</p>
+              <p className="text-2xl font-extrabold tabular-nums">
+                {summary.budgetUsagePercent === null ? "—" : <AnimatedPercent value={summary.budgetUsagePercent} />}
+                {summary.budgetUsagePercent !== null && <span className="text-sm font-medium text-gray-400">%</span>}
+              </p>
+              {summary.budgetUsagePercent !== null ? (
+                <Progress
+                  percent={summary.budgetUsagePercent}
+                  color={summary.budgetUsagePercent >= 100 ? "expense" : summary.budgetUsagePercent >= 80 ? "amber" : "brand"}
+                  className="mt-2"
+                />
+              ) : (
+                <p className="text-[11px] mt-2 text-gray-400">Nenhum orçamento definido</p>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <h2 className="font-semibold mb-3 text-sm">Próximos vencimentos</h2>
+            {summary.upcomingBills.length === 0 ? (
+              <p className="text-sm text-gray-400 py-2">Nenhuma conta pendente. 🎉</p>
+            ) : (
+              <StaggerList>
+                <ul className="divide-y divide-gray-100 dark:divide-white/5">
+                  {summary.upcomingBills.map((b) => (
+                    <StaggerItem key={b.id}>
+                      <li className="py-3 flex items-center gap-3">
+                        <span className="w-9 h-9 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center text-base">
+                          {categoryIcon(b.description)}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{b.description}</p>
+                          <p className="text-xs text-gray-400">{shortDate(b.dueDate)}</p>
+                        </div>
+                        <span className="text-sm font-semibold tabular-nums">{currency(b.amount)}</span>
+                      </li>
+                    </StaggerItem>
+                  ))}
+                </ul>
+              </StaggerList>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -288,32 +327,6 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
-
-      <div className="card">
-        <h2 className="font-semibold mb-3 text-sm">Próximos vencimentos</h2>
-        {summary.upcomingBills.length === 0 ? (
-          <p className="text-sm text-gray-400 py-2">Nenhuma conta pendente. 🎉</p>
-        ) : (
-          <StaggerList>
-            <ul className="divide-y divide-gray-100 dark:divide-white/5">
-              {summary.upcomingBills.map((b) => (
-                <StaggerItem key={b.id}>
-                  <li className="py-3 flex items-center gap-3">
-                    <span className="w-9 h-9 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center text-base">
-                      {categoryIcon(b.description)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{b.description}</p>
-                      <p className="text-xs text-gray-400">{shortDate(b.dueDate)}</p>
-                    </div>
-                    <span className="text-sm font-semibold">{currency(b.amount)}</span>
-                  </li>
-                </StaggerItem>
-              ))}
-            </ul>
-          </StaggerList>
-        )}
-      </div>
     </div>
   );
 }

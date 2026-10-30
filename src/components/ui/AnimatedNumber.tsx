@@ -28,7 +28,7 @@ export function AnimatedCurrency({
     return unsub;
   }, [spring]);
 
-  return <motion.span className={className}>{display}</motion.span>;
+  return <motion.span className={`tabular-nums ${className ?? ""}`}>{display}</motion.span>;
 }
 
 export function AnimatedPercent({ value }: { value: number }) {
