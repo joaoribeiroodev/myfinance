@@ -121,18 +121,23 @@ export async function dashboardRoutes(app: FastifyInstance) {
     // de uma transição gradual onde não houve nada. Também soma o saldo
     // acumulado dia a dia, que é o que normalmente se espera ver num
     // "fluxo de caixa" (como o saldo vai evoluindo ao longo do mês).
-    const monthTransactionsForCashFlow = await prisma.transaction.findMany({
-      where: { userId, date: { gte: start, lte: end } },
-      select: { date: true, amount: true, type: true },
-    });
+    //
+    // Antes esse gráfico só somava Transaction real, deixando de fora contas
+    // (Bill) ainda pendentes/vencidas e recorrências ainda não lançadas no
+    // mês — o mesmo mês que "Receitas e despesas do mês" já mostra cheio
+    // (monthItems mescla os três), o gráfico aparecia zerado/plano. Reusa os
+    // mesmos três conjuntos de dados pra bater com o resto do dashboard.
     const cashFlowMap = new Map<string, { income: number; expense: number }>();
-    for (const t of monthTransactionsForCashFlow) {
-      const key = dayjs(t.date).format("YYYY-MM-DD");
+    function addToCashFlow(date: Date | string, type: "INCOME" | "EXPENSE", amount: number) {
+      const key = dayjs(date).format("YYYY-MM-DD");
       const entry = cashFlowMap.get(key) ?? { income: 0, expense: 0 };
-      if (t.type === "INCOME") entry.income += Number(t.amount);
-      else entry.expense += Number(t.amount);
+      if (type === "INCOME") entry.income += amount;
+      else entry.expense += amount;
       cashFlowMap.set(key, entry);
     }
+    for (const t of monthTransactionsList) addToCashFlow(t.date, t.type, Number(t.amount));
+    for (const b of monthBillsList) addToCashFlow(b.dueDate, b.type, Number(b.amount));
+    for (const p of projectedItems) addToCashFlow(p.date, p.type, p.amount);
     let runningBalance = 0;
     const daysInMonth = ref.daysInMonth();
     const cashFlow = Array.from({ length: daysInMonth }, (_, i) => {

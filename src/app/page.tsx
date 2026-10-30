@@ -268,11 +268,17 @@ export default function DashboardPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" opacity={0.15} vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => shortDate(d)} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={34} />
+              {/* Dois eixos Y: o saldo acumulado (linha) cresce/diminui em
+                  escala bem diferente dos valores diários de receita/despesa
+                  (áreas) — no mesmo eixo, o saldo "esmagava" as áreas lá
+                  embaixo perto de zero, dando a impressão de que o gráfico
+                  não tinha dado nenhum mesmo quando tinha. */}
+              <YAxis yAxisId="flow" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={34} />
+              <YAxis yAxisId="balance" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={34} />
               <Tooltip formatter={(v: number) => currency(v)} labelFormatter={(d) => shortDate(d as string)} />
-              <Area type="monotone" dataKey="income" stroke="#0fd890" strokeWidth={2} fill="url(#inc)" name="Receita" />
-              <Area type="monotone" dataKey="expense" stroke="#ff4066" strokeWidth={2} fill="url(#exp)" name="Despesa" />
-              <Line type="monotone" dataKey="balance" stroke="#8405e0" strokeWidth={2} dot={false} name="Saldo acumulado" />
+              <Area yAxisId="flow" type="monotone" dataKey="income" stroke="#0fd890" strokeWidth={2} fill="url(#inc)" name="Receita" />
+              <Area yAxisId="flow" type="monotone" dataKey="expense" stroke="#ff4066" strokeWidth={2} fill="url(#exp)" name="Despesa" />
+              <Line yAxisId="balance" type="monotone" dataKey="balance" stroke="#8405e0" strokeWidth={2} dot={false} name="Saldo acumulado" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
