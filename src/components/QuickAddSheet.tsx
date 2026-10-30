@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, getToken } from "@/lib/api";
 import { emitDataChanged } from "@/lib/events";
 import { currency, localDateToISO, todayInputValue } from "@/lib/format";
 import { BottomSheet } from "./ui/BottomSheet";
@@ -18,10 +18,10 @@ interface Card {
   name: string;
 }
 
-// Mesmos campos/funções do formulário da tela de Lançamentos (data, cartão,
-// parcelas) — antes esse formulário "rápido" (usado pelo botão flutuante no
-// mobile) só tinha valor/descrição/categoria, então uma despesa no cartão
-// feita por aqui não tinha como ser vinculada nem parcelada.
+// Espelha os mesmos campos/funções do formulário completo da tela de
+// Lançamentos (data, cartão, parcelas, anexo de comprovante) — o atalho
+// rápido (botão flutuante no mobile) não deve ficar com menos recursos
+// que o formulário de lá.
 export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
@@ -35,8 +35,31 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
     categoryId: "",
     creditCardId: "",
     installments: "1",
+    attachmentUrl: "",
   };
   const [form, setForm] = useState(emptyForm);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleAttachmentUpload(file: File) {
+    setUploading(true);
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      const token = getToken();
+      const res = await fetch("/api/uploads", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao enviar anexo");
+      setForm((f) => ({ ...f, attachmentUrl: data.url }));
+    } catch (err: any) {
+      alert(err.message || "Erro ao enviar anexo");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -76,6 +99,7 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
           installmentTotal: installments > 1 ? installments : undefined,
           installmentNumber: installments > 1 ? 1 : undefined,
           paymentMethod: form.creditCardId ? "CREDIT_CARD" : "OTHER",
+          attachmentUrl: form.attachmentUrl || undefined,
         }),
       });
       setForm(emptyForm);
@@ -169,23 +193,25 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
           </div>
         </div>
 
-        {form.type === "EXPENSE" && cards.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Cartão (opcional)</label>
-              <select
-                className="input"
-                value={form.creditCardId}
-                onChange={(e) => setForm({ ...form, creditCardId: e.target.value })}
-              >
-                <option value="">Nenhum</option>
-                {cards.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+        {form.type === "EXPENSE" && (
+          <div className={clsx("grid gap-3", cards.length === 0 ? "grid-cols-1" : "grid-cols-2")}>
+            {cards.length > 0 && (
+              <div>
+                <label className="label">Cartão (opcional)</label>
+                <select
+                  className="input"
+                  value={form.creditCardId}
+                  onChange={(e) => setForm({ ...form, creditCardId: e.target.value })}
+                >
+                  <option value="">Nenhum</option>
+                  {cards.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="label">Parcelas</label>
               <input
@@ -205,6 +231,32 @@ export function QuickAddSheet({ open, onClose }: { open: boolean; onClose: () =>
             {form.amount ? currency(Number(form.amount.replace(",", ".")) || 0) : "R$ 0,00"} nos próximos meses.
           </p>
         )}
+
+        <div>
+          <label className="label">Comprovante (opcional)</label>
+          {form.attachmentUrl ? (
+            <div className="flex items-center gap-2 text-xs">
+              <a href={form.attachmentUrl} target="_blank" rel="noreferrer" className="text-brand-600 dark:text-brand-400 underline">
+                📎 Ver anexo
+              </a>
+              <button type="button" onClick={() => setForm({ ...form, attachmentUrl: "" })} className="text-gray-400">
+                remover
+              </button>
+            </div>
+          ) : (
+            <input
+              className="input"
+              type="file"
+              accept="image/*,application/pdf"
+              disabled={uploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleAttachmentUpload(file);
+              }}
+            />
+          )}
+          {uploading && <p className="text-xs text-gray-400 mt-1">Enviando...</p>}
+        </div>
 
         <button className="btn-primary w-full" disabled={saving}>
           {saving ? "Salvando..." : "Adicionar lançamento"}
