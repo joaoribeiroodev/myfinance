@@ -577,23 +577,25 @@ export default function TransactionsPage() {
             </div>
           </div>
 
-          {form.type === "EXPENSE" && cards.length > 0 && (
-            <div className={clsx("grid gap-3", editingId ? "grid-cols-1" : "grid-cols-2")}>
-              <div>
-                <label className="label">Cartão (opcional)</label>
-                <select
-                  className="input"
-                  value={form.creditCardId}
-                  onChange={(e) => setForm({ ...form, creditCardId: e.target.value })}
-                >
-                  <option value="">Nenhum</option>
-                  {cards.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          {form.type === "EXPENSE" && (
+            <div className={clsx("grid gap-3", editingId || cards.length === 0 ? "grid-cols-1" : "grid-cols-2")}>
+              {cards.length > 0 && (
+                <div>
+                  <label className="label">Cartão (opcional)</label>
+                  <select
+                    className="input"
+                    value={form.creditCardId}
+                    onChange={(e) => setForm({ ...form, creditCardId: e.target.value })}
+                  >
+                    <option value="">Nenhum</option>
+                    {cards.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {!editingId && (
                 <div>
                   <label className="label">Parcelas</label>
