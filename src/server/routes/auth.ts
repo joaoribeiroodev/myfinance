@@ -2,6 +2,7 @@ import type { ShimApp as FastifyInstance } from "../fastify-shim";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
+import { DEFAULT_CATEGORIES } from "../lib/default-categories";
 
 const registerSchema = z.object({
   name: z.string().min(2),
@@ -26,6 +27,11 @@ export async function authRoutes(app: FastifyInstance) {
     const passwordHash = await bcrypt.hash(body.password, 12);
     const user = await prisma.user.create({
       data: { name: body.name, email: body.email, passwordHash },
+    });
+    // Popula um conjunto de categorias padrão pro usuário já começar com
+    // opções pra selecionar nos lançamentos, em vez de uma tela vazia.
+    await prisma.category.createMany({
+      data: DEFAULT_CATEGORIES.map((c) => ({ ...c, userId: user.id })),
     });
     const token = app.jwt.sign({ sub: user.id, email: user.email });
     return { token, user: { id: user.id, name: user.name, email: user.email } };
