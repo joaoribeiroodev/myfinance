@@ -49,6 +49,19 @@ interface InvoiceDetail {
   items: InvoiceItem[];
 }
 
+// Paleta pra identificar cartões diferentes de relance — cores que lembram
+// bandeiras/bancos comuns no Brasil, sem travar o usuário num roxo só.
+const CARD_COLORS = [
+  "#8405e0", // roxo MyFinance (padrão)
+  "#820ad1", // nubank
+  "#ff7a00", // inter
+  "#009ee3", // mercado pago
+  "#ec0000", // santander
+  "#11c76f", // picpay
+  "#1c1c1e", // grafite (c6/itaú black)
+  "#ec7000", // itaú laranja
+];
+
 export default function CardsPage() {
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +77,7 @@ export default function CardsPage() {
     limitAmount: "",
     closingDay: "5",
     dueDay: "12",
+    color: CARD_COLORS[0],
   };
   const [form, setForm] = useState(emptyForm);
 
@@ -85,6 +99,7 @@ export default function CardsPage() {
       limitAmount: Number(form.limitAmount.replace(",", ".")),
       closingDay: Number(form.closingDay),
       dueDay: Number(form.dueDay),
+      color: form.color,
     };
 
     if (editingId) {
@@ -104,6 +119,7 @@ export default function CardsPage() {
       limitAmount: String(Number(c.limitAmount)).replace(".", ","),
       closingDay: String(c.closingDay),
       dueDay: String(c.dueDay),
+      color: c.color || CARD_COLORS[0],
     });
     setFormOpen(true);
   }
@@ -199,6 +215,9 @@ export default function CardsPage() {
                     "card-gradient !rounded-3xl cursor-pointer active:scale-[0.98] transition-transform",
                     !c.active && "opacity-50"
                   )}
+                  style={{
+                    background: `linear-gradient(135deg, color-mix(in srgb, ${c.color || "#8405e0"} 78%, white) 0%, ${c.color || "#8405e0"} 55%, color-mix(in srgb, ${c.color || "#8405e0"} 72%, black) 100%)`,
+                  }}
                 >
                   {/* decoração puramente visual — sem pointer-events-none ela ficava
                       por cima do botão ✏️/⏸/✕ (fica posicionada no mesmo canto
@@ -329,6 +348,24 @@ export default function CardsPage() {
                 onChange={(e) => setForm({ ...form, dueDay: e.target.value })}
                 required
               />
+            </div>
+          </div>
+          <div>
+            <label className="label">Cor</label>
+            <div className="flex flex-wrap gap-2.5">
+              {CARD_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setForm({ ...form, color })}
+                  className={clsx(
+                    "w-8 h-8 rounded-full transition-transform",
+                    form.color === color && "ring-2 ring-offset-2 ring-brand-500 dark:ring-offset-surface-darkcard scale-110"
+                  )}
+                  style={{ backgroundColor: color }}
+                  aria-label={`Cor ${color}`}
+                />
+              ))}
             </div>
           </div>
           <button className="btn-primary w-full">{editingId ? "Salvar alterações" : "Salvar cartão"}</button>

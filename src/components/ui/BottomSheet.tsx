@@ -36,22 +36,29 @@ export function BottomSheet({
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
-          <motion.div
-            className="fixed bottom-0 left-0 right-0 z-50 sm:max-w-md sm:mx-auto bg-white dark:bg-surface-darkcard rounded-t-3xl sm:rounded-3xl sm:bottom-10 p-5 pb-[calc(1.25rem+var(--safe-bottom))] max-h-[85vh] overflow-y-auto shadow-2xl"
-            initial={{ y: "100%" }}
-            animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ type: "spring", damping: 28, stiffness: 300 }}
-          >
-            <div className="sheet-handle sm:hidden" />
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">{title}</h2>
-              <button onClick={onClose} className="btn-icon text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
-                ✕
-              </button>
-            </div>
-            {children}
-          </motion.div>
+          {/* No mobile é um bottom sheet de verdade (ancorado embaixo, largura
+              cheia). A partir de sm, vira um modal centralizado na tela —
+              antes ficava "meio preso" perto do rodapé no desktop, um
+              resquício do padrão mobile que não fazia sentido com espaço de
+              sobra em volta. */}
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center pointer-events-none">
+            <motion.div
+              className="pointer-events-auto w-full sm:max-w-md bg-white dark:bg-surface-darkcard rounded-t-3xl sm:rounded-3xl p-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:pb-5 max-h-[85vh] overflow-y-auto shadow-2xl"
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+            >
+              <div className="sheet-handle sm:hidden" />
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold">{title}</h2>
+                <button onClick={onClose} className="btn-icon text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5">
+                  ✕
+                </button>
+              </div>
+              {children}
+            </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>,
