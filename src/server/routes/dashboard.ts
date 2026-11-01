@@ -14,35 +14,52 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const start = ref.startOf("month").toDate();
     const end = ref.endOf("month").toDate();
 
-    const [incomeAgg, expenseAgg, byCategory, bills, budgets, goalsAgg] = await Promise.all([
-      prisma.transaction.aggregate({
-        where: { userId, type: "INCOME", date: { gte: start, lte: end } },
-        _sum: { amount: true },
-      }),
-      prisma.transaction.aggregate({
-        where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
-        _sum: { amount: true },
-      }),
-      prisma.transaction.groupBy({
-        by: ["categoryId"],
-        where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
-        _sum: { amount: true },
-      }),
-      prisma.bill.findMany({
-        where: { userId, status: "PENDING", dueDate: { gte: new Date() } },
-        orderBy: { dueDate: "asc" },
-        take: 5,
-      }),
-      prisma.budget.findMany({
-        where: { userId, referenceMonth: start },
-      }),
-      // dinheiro guardado em cofrinhos ainda em andamento (não concluídos) —
-      // considerado "reservado", fora do saldo disponível de verdade
-      prisma.goal.aggregate({
-        where: { userId, status: "IN_PROGRESS" },
-        _sum: { currentAmount: true },
-      }),
-    ]);
+    const [incomeAgg, expenseAgg, byCategory, bills, budgets, goalsAgg, cumulativeIncomeAgg, cumulativeExpenseAgg] =
+      await Promise.all([
+        prisma.transaction.aggregate({
+          where: { userId, type: "INCOME", date: { gte: start, lte: end } },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.groupBy({
+          by: ["categoryId"],
+          where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
+          _sum: { amount: true },
+        }),
+        prisma.bill.findMany({
+          where: { userId, status: "PENDING", dueDate: { gte: new Date() } },
+          orderBy: { dueDate: "asc" },
+          take: 5,
+        }),
+        prisma.budget.findMany({
+          where: { userId, referenceMonth: start },
+        }),
+        // dinheiro guardado em cofrinhos ainda em andamento (não concluídos) —
+        // considerado "reservado", fora do saldo disponível de verdade
+        prisma.goal.aggregate({
+          where: { userId, status: "IN_PROGRESS" },
+          _sum: { currentAmount: true },
+        }),
+        // Saldo "de verdade" (o que existe de fato na conta) é cumulativo —
+        // tudo que já entrou/saiu desde sempre até o fim do mês selecionado,
+        // não só o que entrou/saiu DENTRO desse mês. Antes o saldo disponível
+        // usava só o fluxo do mês (totalIncome - totalExpense do período),
+        // então cada mês novo "zerava" o saldo em vez de continuar a partir
+        // do que sobrou do mês anterior — correto por coincidência em
+        // outubro (primeiro mês de uso real, sem saldo anterior) e visivelmente
+        // errado a partir de novembro.
+        prisma.transaction.aggregate({
+          where: { userId, type: "INCOME", date: { lte: end } },
+          _sum: { amount: true },
+        }),
+        prisma.transaction.aggregate({
+          where: { userId, type: "EXPENSE", date: { lte: end } },
+          _sum: { amount: true },
+        }),
+      ]);
 
     // Recorrências ativas só geram o lançamento/conta de verdade no dia 1 do
     // mês (ver jobs/worker.ts). Pra um mês atual ou futuro ainda não gerado,
@@ -58,7 +75,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
     );
     const { totalIncome, totalExpense, hasProjectedRecurring, projectedItems } = projection;
 
-    const balance = totalIncome - totalExpense;
+    // Delta que a projeção acrescentou (recorrências do mês corrente/futuro
+    // ainda não lançadas) — aplicado também ao saldo cumulativo, já que esse
+    // dinheiro é esperado entrar/sair dentro do mês selecionado.
+    const projectedIncomeDelta = totalIncome - Number(incomeAgg._sum.amount ?? 0);
+    const projectedExpenseDelta = totalExpense - Number(expenseAgg._sum.amount ?? 0);
+    const cumulativeIncome = Number(cumulativeIncomeAgg._sum.amount ?? 0) + projectedIncomeDelta;
+    const cumulativeExpense = Number(cumulativeExpenseAgg._sum.amount ?? 0) + projectedExpenseDelta;
+
+    const balance = cumulativeIncome - cumulativeExpense;
     const reservedInGoals = Number(goalsAgg._sum.currentAmount ?? 0);
     const availableBalance = balance - reservedInGoals;
 
@@ -173,7 +198,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const hasActivity = totalIncome > 0 || totalExpense > 0;
     let healthScore: number | null = null;
     if (hasActivity) {
-      const savingsRate = totalIncome > 0 ? balance / totalIncome : 0;
+      // Taxa de poupança é sobre o fluxo DESSE mês (totalIncome/totalExpense),
+      // não o saldo acumulado — senão um saldo alto só de meses anteriores
+      // infla o score mesmo num mês em que o usuário gastou tudo que ganhou.
+      const monthBalance = totalIncome - totalExpense;
+      const savingsRate = totalIncome > 0 ? monthBalance / totalIncome : 0;
       const savingsScore = Math.max(0, Math.min(100, savingsRate * 100 + 50)); // 0% poupança = 50 pts, 50% = 100
       const budgetScore =
         budgetUsagePercent === null ? 70 : Math.max(0, 100 - Math.max(0, budgetUsagePercent - 100));
