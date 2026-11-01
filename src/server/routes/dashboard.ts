@@ -43,11 +43,21 @@ export async function dashboardRoutes(app: FastifyInstance) {
         _sum: { currentAmount: true },
       }),
       // contas (Bill) pendentes/vencidas que vencem DENTRO do mês
-      // selecionado — reusada tanto pro saldo disponível (ver abaixo) quanto
-      // pra lista "Receitas e despesas do mês", pra não buscar duas vezes.
+      // selecionado — reusada pro saldo disponível, pro total de
+      // receitas/despesas do card, pra "despesas por categoria" (categoria
+      // resolvida pela recorrência vinculada, já que Bill não tem
+      // categoryId direto) e pra lista "Receitas e despesas do mês".
       prisma.bill.findMany({
         where: { userId, dueDate: { gte: start, lte: end }, status: { in: ["PENDING", "OVERDUE"] } },
-        select: { id: true, description: true, amount: true, type: true, dueDate: true, status: true },
+        select: {
+          id: true,
+          description: true,
+          amount: true,
+          type: true,
+          dueDate: true,
+          status: true,
+          recurringTemplate: { select: { categoryId: true } },
+        },
       }),
     ]);
 
@@ -63,24 +73,28 @@ export async function dashboardRoutes(app: FastifyInstance) {
       Number(incomeAgg._sum.amount ?? 0),
       Number(expenseAgg._sum.amount ?? 0)
     );
-    const { totalIncome, totalExpense, hasProjectedRecurring, projectedItems } = projection;
+    const { hasProjectedRecurring, projectedItems } = projection;
 
-    // "Saldo disponível" é só do mês selecionado (não acumula com meses
-    // anteriores/seguintes) — soma receita/despesa real + já comprometida
-    // (contas pendentes/vencidas que vencem nesse mês) + o que falta gerar
-    // esse mês (recorrências/renda fixa ainda não lançadas, já incluso em
-    // totalIncome/totalExpense via projectMonth), pra só então subtrair.
-    // Antes as contas (Bill) pendentes do mês não entravam em lugar nenhum
-    // no saldo: não são Transaction (ainda não pagas) nem "projetadas" (já
-    // foram geradas) — ficavam de fora tanto do real quanto da projeção.
+    // Receitas/Despesas do mês (os números do card, o saldo, o health score
+    // e "despesas por categoria" têm que bater todos com a MESMA definição
+    // de "despesa do mês"): real (Transaction) + contas (Bill)
+    // pendentes/vencidas que vencem nesse mês (já comprometidas, só ainda
+    // não pagas) + recorrências/renda fixa ainda não lançadas (projeção).
+    // Antes as contas pendentes do mês não entravam em lugar nenhum: não
+    // são Transaction (ainda não pagas) nem "projetadas" (já foram
+    // geradas como Bill) — ficavam de fora tanto do real quanto da
+    // projeção, inclusive do card "Receitas"/"Despesas" e do gráfico de
+    // categoria, só apareciam somadas de verdade no saldo.
     const pendingBillsIncome = monthBillsList
       .filter((b) => b.type === "INCOME")
       .reduce((s, b) => s + Number(b.amount), 0);
     const pendingBillsExpense = monthBillsList
       .filter((b) => b.type === "EXPENSE")
       .reduce((s, b) => s + Number(b.amount), 0);
+    const totalIncome = projection.totalIncome + pendingBillsIncome;
+    const totalExpense = projection.totalExpense + pendingBillsExpense;
 
-    const balance = totalIncome + pendingBillsIncome - (totalExpense + pendingBillsExpense);
+    const balance = totalIncome - totalExpense;
     const reservedInGoals = Number(goalsAgg._sum.currentAmount ?? 0);
     const availableBalance = balance - reservedInGoals;
 
@@ -120,10 +134,26 @@ export async function dashboardRoutes(app: FastifyInstance) {
       byCategory.map((c) => ({ categoryId: c.categoryId, total: Number(c._sum.amount ?? 0) })),
       projectedItems
     );
+    // Contas (Bill) pendentes/vencidas do mês também entram aqui — a
+    // categoria é resolvida pela recorrência vinculada (Bill não tem
+    // categoryId direto, só quando veio de um RecurringTemplate
+    // categorizado). Sem isso, essas despesas já comprometidas (ex: conta
+    // de luz, assinatura ainda não paga) ficavam de fora do gráfico de
+    // categoria mesmo já contando no total de "Despesas" do card.
+    const categoryTotalsByKey = new Map(mergedCategoryTotals.map((c) => [c.categoryId ?? "__none__", c.total]));
+    for (const b of monthBillsList) {
+      if (b.type !== "EXPENSE") continue;
+      const key = b.recurringTemplate?.categoryId ?? "__none__";
+      categoryTotalsByKey.set(key, (categoryTotalsByKey.get(key) ?? 0) + Number(b.amount));
+    }
+    const finalCategoryTotals = Array.from(categoryTotalsByKey.entries()).map(([key, total]) => ({
+      categoryId: key === "__none__" ? null : key,
+      total,
+    }));
     const categories = await prisma.category.findMany({
-      where: { id: { in: mergedCategoryTotals.map((c) => c.categoryId).filter(Boolean) as string[] } },
+      where: { id: { in: finalCategoryTotals.map((c) => c.categoryId).filter(Boolean) as string[] } },
     });
-    const expensesByCategoryRaw = mergedCategoryTotals.map((c) => ({
+    const expensesByCategoryRaw = finalCategoryTotals.map((c) => ({
       category: categories.find((cat) => cat.id === c.categoryId)?.name ?? "Sem categoria",
       total: c.total,
     }));
