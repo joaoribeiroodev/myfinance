@@ -14,73 +14,42 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const start = ref.startOf("month").toDate();
     const end = ref.endOf("month").toDate();
 
-    const [
-      incomeAgg,
-      expenseAgg,
-      byCategory,
-      bills,
-      budgets,
-      goalsAgg,
-      cumulativeIncomeAgg,
-      cumulativeExpenseAgg,
-      cumulativePendingBills,
-    ] = await Promise.all([
-        prisma.transaction.aggregate({
-          where: { userId, type: "INCOME", date: { gte: start, lte: end } },
-          _sum: { amount: true },
-        }),
-        prisma.transaction.aggregate({
-          where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
-          _sum: { amount: true },
-        }),
-        prisma.transaction.groupBy({
-          by: ["categoryId"],
-          where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
-          _sum: { amount: true },
-        }),
-        prisma.bill.findMany({
-          where: { userId, status: "PENDING", dueDate: { gte: new Date() } },
-          orderBy: { dueDate: "asc" },
-          take: 5,
-        }),
-        prisma.budget.findMany({
-          where: { userId, referenceMonth: start },
-        }),
-        // dinheiro guardado em cofrinhos ainda em andamento (não concluídos) —
-        // considerado "reservado", fora do saldo disponível de verdade
-        prisma.goal.aggregate({
-          where: { userId, status: "IN_PROGRESS" },
-          _sum: { currentAmount: true },
-        }),
-        // Saldo "de verdade" (o que existe de fato na conta) é cumulativo —
-        // tudo que já entrou/saiu desde sempre até o fim do mês selecionado,
-        // não só o que entrou/saiu DENTRO desse mês. Antes o saldo disponível
-        // usava só o fluxo do mês (totalIncome - totalExpense do período),
-        // então cada mês novo "zerava" o saldo em vez de continuar a partir
-        // do que sobrou do mês anterior — correto por coincidência em
-        // outubro (primeiro mês de uso real, sem saldo anterior) e visivelmente
-        // errado a partir de novembro.
-        prisma.transaction.aggregate({
-          where: { userId, type: "INCOME", date: { lte: end } },
-          _sum: { amount: true },
-        }),
-        prisma.transaction.aggregate({
-          where: { userId, type: "EXPENSE", date: { lte: end } },
-          _sum: { amount: true },
-        }),
-        // Contas (Bill) pendentes/vencidas já são dívida/crédito CERTO — só
-        // ainda não saiu/entrou de fato da conta. Sem contar isso, o saldo
-        // disponível ficava "bonito" ignorando despesas já comprometidas
-        // (ex: fatura do cartão, conta de luz já gerada) só porque ainda não
-        // foram pagas — exatamente o que fazia o saldo parecer maior do que
-        // realmente é. Cumulativo (não só do mês selecionado), pra pegar
-        // também contas antigas que ficaram vencidas sem pagar.
-        prisma.bill.groupBy({
-          by: ["type"],
-          where: { userId, status: { in: ["PENDING", "OVERDUE"] }, dueDate: { lte: end } },
-          _sum: { amount: true },
-        }),
-      ]);
+    const [incomeAgg, expenseAgg, byCategory, bills, budgets, goalsAgg, monthBillsList] = await Promise.all([
+      prisma.transaction.aggregate({
+        where: { userId, type: "INCOME", date: { gte: start, lte: end } },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.aggregate({
+        where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
+        _sum: { amount: true },
+      }),
+      prisma.transaction.groupBy({
+        by: ["categoryId"],
+        where: { userId, type: "EXPENSE", date: { gte: start, lte: end } },
+        _sum: { amount: true },
+      }),
+      prisma.bill.findMany({
+        where: { userId, status: "PENDING", dueDate: { gte: new Date() } },
+        orderBy: { dueDate: "asc" },
+        take: 5,
+      }),
+      prisma.budget.findMany({
+        where: { userId, referenceMonth: start },
+      }),
+      // dinheiro guardado em cofrinhos ainda em andamento (não concluídos) —
+      // considerado "reservado", fora do saldo disponível de verdade
+      prisma.goal.aggregate({
+        where: { userId, status: "IN_PROGRESS" },
+        _sum: { currentAmount: true },
+      }),
+      // contas (Bill) pendentes/vencidas que vencem DENTRO do mês
+      // selecionado — reusada tanto pro saldo disponível (ver abaixo) quanto
+      // pra lista "Receitas e despesas do mês", pra não buscar duas vezes.
+      prisma.bill.findMany({
+        where: { userId, dueDate: { gte: start, lte: end }, status: { in: ["PENDING", "OVERDUE"] } },
+        select: { id: true, description: true, amount: true, type: true, dueDate: true, status: true },
+      }),
+    ]);
 
     // Recorrências ativas só geram o lançamento/conta de verdade no dia 1 do
     // mês (ver jobs/worker.ts). Pra um mês atual ou futuro ainda não gerado,
@@ -96,45 +65,34 @@ export async function dashboardRoutes(app: FastifyInstance) {
     );
     const { totalIncome, totalExpense, hasProjectedRecurring, projectedItems } = projection;
 
-    // "Saldo disponível" soma TUDO que compõe o saldo real + esperado até o
-    // fim do mês selecionado, pra só então subtrair receita de despesa:
-    //   1. transações reais (cumulativo, desde o início da conta)
-    //   2. contas (Bill) pendentes/vencidas já geradas mas ainda não pagas —
-    //      dívida/crédito certo, só ainda não baixou da conta
-    //   3. o que falta gerar esse mês (recorrências/renda fixa ainda não
-    //      lançadas, só pro mês atual/futuro — projectMonth já cuida disso)
-    // As três fontes já são as mesmas usadas em "Receitas e despesas do
-    // mês" (monthItems) e nos totais do card — faltava somar tudo isso de
-    // forma cumulativa (incluindo meses anteriores) antes de subtrair.
-    const pendingBillsByType = new Map(cumulativePendingBills.map((b) => [b.type, Number(b._sum.amount ?? 0)]));
-    const pendingBillsIncome = pendingBillsByType.get("INCOME") ?? 0;
-    const pendingBillsExpense = pendingBillsByType.get("EXPENSE") ?? 0;
-    // delta que a projeção acrescentou ao totalIncome/totalExpense do mês
-    // selecionado (só recorrências/renda fixa ainda não lançadas nesse mês)
-    const projectedIncomeDelta = totalIncome - Number(incomeAgg._sum.amount ?? 0);
-    const projectedExpenseDelta = totalExpense - Number(expenseAgg._sum.amount ?? 0);
+    // "Saldo disponível" é só do mês selecionado (não acumula com meses
+    // anteriores/seguintes) — soma receita/despesa real + já comprometida
+    // (contas pendentes/vencidas que vencem nesse mês) + o que falta gerar
+    // esse mês (recorrências/renda fixa ainda não lançadas, já incluso em
+    // totalIncome/totalExpense via projectMonth), pra só então subtrair.
+    // Antes as contas (Bill) pendentes do mês não entravam em lugar nenhum
+    // no saldo: não são Transaction (ainda não pagas) nem "projetadas" (já
+    // foram geradas) — ficavam de fora tanto do real quanto da projeção.
+    const pendingBillsIncome = monthBillsList
+      .filter((b) => b.type === "INCOME")
+      .reduce((s, b) => s + Number(b.amount), 0);
+    const pendingBillsExpense = monthBillsList
+      .filter((b) => b.type === "EXPENSE")
+      .reduce((s, b) => s + Number(b.amount), 0);
 
-    const totalCumulativeIncome = Number(cumulativeIncomeAgg._sum.amount ?? 0) + pendingBillsIncome + projectedIncomeDelta;
-    const totalCumulativeExpense =
-      Number(cumulativeExpenseAgg._sum.amount ?? 0) + pendingBillsExpense + projectedExpenseDelta;
-    const balance = totalCumulativeIncome - totalCumulativeExpense;
+    const balance = totalIncome + pendingBillsIncome - (totalExpense + pendingBillsExpense);
     const reservedInGoals = Number(goalsAgg._sum.currentAmount ?? 0);
     const availableBalance = balance - reservedInGoals;
 
     // Lista de consulta rápida: tudo que entra/sai nesse mês — lançamentos
     // já realizados + contas agendadas (pendentes/atrasadas) que caem no
-    // mês + o que foi projetado de recorrências/renda fixa ainda não
-    // geradas (marcado como "projected" pro front distinguir visualmente).
-    const [monthTransactionsList, monthBillsList] = await Promise.all([
-      prisma.transaction.findMany({
-        where: { userId, date: { gte: start, lte: end } },
-        select: { id: true, description: true, amount: true, type: true, date: true },
-      }),
-      prisma.bill.findMany({
-        where: { userId, dueDate: { gte: start, lte: end }, status: { in: ["PENDING", "OVERDUE"] } },
-        select: { id: true, description: true, amount: true, type: true, dueDate: true, status: true },
-      }),
-    ]);
+    // mês (já buscadas acima, reusadas aqui) + o que foi projetado de
+    // recorrências/renda fixa ainda não geradas (marcado como "projected"
+    // pro front distinguir visualmente).
+    const monthTransactionsList = await prisma.transaction.findMany({
+      where: { userId, date: { gte: start, lte: end } },
+      select: { id: true, description: true, amount: true, type: true, date: true },
+    });
     const monthItems = [
       ...monthTransactionsList.map((t) => ({
         id: t.id,

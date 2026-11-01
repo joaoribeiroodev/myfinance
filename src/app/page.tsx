@@ -131,11 +131,10 @@ export default function DashboardPage() {
               value={summary.availableBalance}
               className="text-4xl lg:text-5xl font-extrabold tracking-tight tabular-nums block mt-1"
             />
-            {summary.hasProjectedRecurring && (
-              <p className="text-[11px] text-white/60 mt-1">
-                Inclui contas já geradas mas ainda não pagas e recorrências deste mês ainda não lançadas (projetado)
-              </p>
-            )}
+            <p className="text-[11px] text-white/60 mt-1">
+              Saldo deste mês — já conta contas pendentes/vencidas
+              {summary.hasProjectedRecurring ? " e recorrências ainda não lançadas (projetado)" : ""}
+            </p>
             {summary.reservedInGoals > 0 && (
               <p className="text-xs text-white/60 mt-1">
                 + {currency(summary.reservedInGoals)} guardados em cofrinhos 🐷
