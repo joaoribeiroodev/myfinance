@@ -132,7 +132,10 @@ export default function DashboardPage() {
               className="text-4xl lg:text-5xl font-extrabold tracking-tight tabular-nums block mt-1"
             />
             {summary.hasProjectedRecurring && (
-              <p className="text-[11px] text-white/60 mt-1">Inclui recorrências ainda não lançadas este mês (projetado)</p>
+              <p className="text-[11px] text-white/60 mt-1">
+                Receitas/despesas abaixo incluem recorrências deste mês ainda não lançadas (projetado) — o saldo acima
+                conta só o que já é real
+              </p>
             )}
             {summary.reservedInGoals > 0 && (
               <p className="text-xs text-white/60 mt-1">

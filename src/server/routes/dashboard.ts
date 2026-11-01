@@ -75,15 +75,18 @@ export async function dashboardRoutes(app: FastifyInstance) {
     );
     const { totalIncome, totalExpense, hasProjectedRecurring, projectedItems } = projection;
 
-    // Delta que a projeção acrescentou (recorrências do mês corrente/futuro
-    // ainda não lançadas) — aplicado também ao saldo cumulativo, já que esse
-    // dinheiro é esperado entrar/sair dentro do mês selecionado.
-    const projectedIncomeDelta = totalIncome - Number(incomeAgg._sum.amount ?? 0);
-    const projectedExpenseDelta = totalExpense - Number(expenseAgg._sum.amount ?? 0);
-    const cumulativeIncome = Number(cumulativeIncomeAgg._sum.amount ?? 0) + projectedIncomeDelta;
-    const cumulativeExpense = Number(cumulativeExpenseAgg._sum.amount ?? 0) + projectedExpenseDelta;
-
-    const balance = cumulativeIncome - cumulativeExpense;
+    // "Saldo disponível" é dinheiro que JÁ ENTROU/SAIU de verdade — soma só
+    // transações reais (cumulativo, desde o início até o fim do mês
+    // selecionado). Não inclui o que foi projetado (recorrências/renda fixa
+    // ainda não lançadas nesse mês): um salário "projetado" ainda não caiu
+    // na conta, então não é saldo disponível — é só uma expectativa. Contar
+    // o projetado aqui fazia o saldo ficar maior do que o dinheiro que a
+    // pessoa realmente tem em mãos (ex: salário do mês passado já recebido
+    // + salário deste mês ainda projetado, somados como se os dois já
+    // estivessem disponíveis). totalIncome/totalExpense (com projeção)
+    // continuam sendo usados só pros cards de "Receitas"/"Despesas" do mês
+    // e para a lista de lançamentos, onde faz sentido mostrar a expectativa.
+    const balance = Number(cumulativeIncomeAgg._sum.amount ?? 0) - Number(cumulativeExpenseAgg._sum.amount ?? 0);
     const reservedInGoals = Number(goalsAgg._sum.currentAmount ?? 0);
     const availableBalance = balance - reservedInGoals;
 

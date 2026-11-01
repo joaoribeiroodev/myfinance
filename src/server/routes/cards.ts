@@ -20,21 +20,49 @@ const cardSchema = z.object({
 // Exportada pra ser reutilizada pelo resumo de cartões do bot do Telegram.
 //
 // Quando referenceMonth é "agora" (uso mais comum, tela de cartões sem
-// escolher mês) e o dia de fechamento desse mês JÁ PASSOU (ex: fecha dia 11
-// e hoje é dia 17), o fechamento desse mês calendário já é uma fatura
-// FECHADA — a fatura "atual" de verdade é a que fecha no mês seguinte. Sem
-// esse ajuste, "fatura atual" ficava mostrando um ciclo todo no passado
-// (sem nenhum lançamento dentro, daí R$ 0,00) e tudo que devia aparecer ali
-// só contava no "limite comprometido total", nunca na fatura do mês.
+// escolher mês), a "fatura atual" não é necessariamente a do fechamento
+// deste mês calendário:
+//
+// 1. Se o dia de fechamento deste mês AINDA NÃO CHEGOU (ex: fecha dia 25 e
+//    hoje é dia 1), essa fatura nem começou a fechar de verdade — a fatura
+//    "atual" de fato é a que fechou no mês anterior (dia 25 do mês
+//    passado) e ainda nem venceu. Sem esse ajuste, no início do mês a tela
+//    pulava direto pro fechamento futuro deste mês (ciclo em aberto, mal
+//    começou) e escondia a fatura que acabou de fechar e está prestes a
+//    vencer — tudo que devia aparecer nela "ia parar" na fatura seguinte.
+// 2. Mesmo já fechada, essa fatura continua sendo a "atual" (a que precisa
+//    ser paga) até o vencimento — só depois do vencimento ela é presumida
+//    paga e a tela rola pra próxima (o ajuste original desta função,
+//    pra não ficar presa num ciclo todo no passado com R$ 0,00).
+//
 // Selecionar um mês explícito (?month=) continua olhando o fechamento
 // exato daquele mês, sem rolar — o ajuste só vale pra "agora".
-export function invoiceCycle(referenceMonth: Date, closingDay: number, opts: { rollForward?: boolean } = {}) {
+export function invoiceCycle(
+  referenceMonth: Date,
+  closingDay: number,
+  opts: { rollForward?: boolean; dueDay?: number } = {}
+) {
   const ref = dayjs(referenceMonth);
-  let end = ref.date(Math.min(closingDay, ref.daysInMonth()));
-  if (opts.rollForward && end.isBefore(ref, "day")) {
-    const next = ref.add(1, "month");
-    end = next.date(Math.min(closingDay, next.daysInMonth()));
+  const dateInMonth = (base: dayjs.Dayjs, day: number) => base.date(Math.min(day, base.daysInMonth()));
+
+  // Fechamento mais recente: se o dia de fechamento deste mês ainda não
+  // chegou, o fechamento de verdade mais recente foi no mês anterior.
+  let end = dateInMonth(ref, closingDay);
+  if (end.isAfter(ref, "day")) {
+    end = dateInMonth(ref.subtract(1, "month"), closingDay);
   }
+
+  if (opts.rollForward) {
+    const dueDay = opts.dueDay ?? closingDay;
+    // vencimento cai no mês seguinte ao fechamento quando o dia de
+    // vencimento é "menor" que o de fechamento (ex: fecha 25, vence 3 do
+    // mês seguinte) — mesma regra usada no endpoint de detalhe da fatura.
+    const due = dueDay <= closingDay ? dateInMonth(end.add(1, "month"), dueDay) : dateInMonth(end, dueDay);
+    if (due.isBefore(ref, "day")) {
+      end = dateInMonth(end.add(1, "month"), closingDay);
+    }
+  }
+
   const start = end.subtract(1, "month").add(1, "day");
   return { start: start.startOf("day").toDate(), end: end.endOf("day").toDate() };
 }
@@ -111,7 +139,7 @@ export async function cardRoutes(app: FastifyInstance) {
     // já devolve a fatura atual (ciclo corrente) de cada cartão, pra listagem
     const withCurrentInvoice = await Promise.all(
       cards.map(async (c) => {
-        const { start, end } = invoiceCycle(new Date(), c.closingDay, { rollForward: true });
+        const { start, end } = invoiceCycle(new Date(), c.closingDay, { rollForward: true, dueDay: c.dueDay });
         const [realCommitted, realLimitUsed, projected] = await Promise.all([
           // "committed": só o valor QUE FECHA nessa fatura (o que você paga
           // esse mês) — usado pra exibir o valor grande do card.
@@ -194,7 +222,7 @@ export async function cardRoutes(app: FastifyInstance) {
     if (!card) return reply.code(404).send({ error: "Cartão não encontrado" });
 
     const ref = month ? dayjs(month).toDate() : new Date();
-    const { start, end } = invoiceCycle(ref, card.closingDay, { rollForward: !month });
+    const { start, end } = invoiceCycle(ref, card.closingDay, { rollForward: !month, dueDay: card.dueDay });
     const isOpenScope = scope === "open";
     const dateWhere = isOpenScope ? { gte: start } : { gte: start, lte: end };
 
