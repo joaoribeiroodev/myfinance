@@ -14,8 +14,17 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const start = ref.startOf("month").toDate();
     const end = ref.endOf("month").toDate();
 
-    const [incomeAgg, expenseAgg, byCategory, bills, budgets, goalsAgg, cumulativeIncomeAgg, cumulativeExpenseAgg] =
-      await Promise.all([
+    const [
+      incomeAgg,
+      expenseAgg,
+      byCategory,
+      bills,
+      budgets,
+      goalsAgg,
+      cumulativeIncomeAgg,
+      cumulativeExpenseAgg,
+      cumulativePendingBills,
+    ] = await Promise.all([
         prisma.transaction.aggregate({
           where: { userId, type: "INCOME", date: { gte: start, lte: end } },
           _sum: { amount: true },
@@ -59,6 +68,18 @@ export async function dashboardRoutes(app: FastifyInstance) {
           where: { userId, type: "EXPENSE", date: { lte: end } },
           _sum: { amount: true },
         }),
+        // Contas (Bill) pendentes/vencidas já são dívida/crédito CERTO — só
+        // ainda não saiu/entrou de fato da conta. Sem contar isso, o saldo
+        // disponível ficava "bonito" ignorando despesas já comprometidas
+        // (ex: fatura do cartão, conta de luz já gerada) só porque ainda não
+        // foram pagas — exatamente o que fazia o saldo parecer maior do que
+        // realmente é. Cumulativo (não só do mês selecionado), pra pegar
+        // também contas antigas que ficaram vencidas sem pagar.
+        prisma.bill.groupBy({
+          by: ["type"],
+          where: { userId, status: { in: ["PENDING", "OVERDUE"] }, dueDate: { lte: end } },
+          _sum: { amount: true },
+        }),
       ]);
 
     // Recorrências ativas só geram o lançamento/conta de verdade no dia 1 do
@@ -75,18 +96,28 @@ export async function dashboardRoutes(app: FastifyInstance) {
     );
     const { totalIncome, totalExpense, hasProjectedRecurring, projectedItems } = projection;
 
-    // "Saldo disponível" é dinheiro que JÁ ENTROU/SAIU de verdade — soma só
-    // transações reais (cumulativo, desde o início até o fim do mês
-    // selecionado). Não inclui o que foi projetado (recorrências/renda fixa
-    // ainda não lançadas nesse mês): um salário "projetado" ainda não caiu
-    // na conta, então não é saldo disponível — é só uma expectativa. Contar
-    // o projetado aqui fazia o saldo ficar maior do que o dinheiro que a
-    // pessoa realmente tem em mãos (ex: salário do mês passado já recebido
-    // + salário deste mês ainda projetado, somados como se os dois já
-    // estivessem disponíveis). totalIncome/totalExpense (com projeção)
-    // continuam sendo usados só pros cards de "Receitas"/"Despesas" do mês
-    // e para a lista de lançamentos, onde faz sentido mostrar a expectativa.
-    const balance = Number(cumulativeIncomeAgg._sum.amount ?? 0) - Number(cumulativeExpenseAgg._sum.amount ?? 0);
+    // "Saldo disponível" soma TUDO que compõe o saldo real + esperado até o
+    // fim do mês selecionado, pra só então subtrair receita de despesa:
+    //   1. transações reais (cumulativo, desde o início da conta)
+    //   2. contas (Bill) pendentes/vencidas já geradas mas ainda não pagas —
+    //      dívida/crédito certo, só ainda não baixou da conta
+    //   3. o que falta gerar esse mês (recorrências/renda fixa ainda não
+    //      lançadas, só pro mês atual/futuro — projectMonth já cuida disso)
+    // As três fontes já são as mesmas usadas em "Receitas e despesas do
+    // mês" (monthItems) e nos totais do card — faltava somar tudo isso de
+    // forma cumulativa (incluindo meses anteriores) antes de subtrair.
+    const pendingBillsByType = new Map(cumulativePendingBills.map((b) => [b.type, Number(b._sum.amount ?? 0)]));
+    const pendingBillsIncome = pendingBillsByType.get("INCOME") ?? 0;
+    const pendingBillsExpense = pendingBillsByType.get("EXPENSE") ?? 0;
+    // delta que a projeção acrescentou ao totalIncome/totalExpense do mês
+    // selecionado (só recorrências/renda fixa ainda não lançadas nesse mês)
+    const projectedIncomeDelta = totalIncome - Number(incomeAgg._sum.amount ?? 0);
+    const projectedExpenseDelta = totalExpense - Number(expenseAgg._sum.amount ?? 0);
+
+    const totalCumulativeIncome = Number(cumulativeIncomeAgg._sum.amount ?? 0) + pendingBillsIncome + projectedIncomeDelta;
+    const totalCumulativeExpense =
+      Number(cumulativeExpenseAgg._sum.amount ?? 0) + pendingBillsExpense + projectedExpenseDelta;
+    const balance = totalCumulativeIncome - totalCumulativeExpense;
     const reservedInGoals = Number(goalsAgg._sum.currentAmount ?? 0);
     const availableBalance = balance - reservedInGoals;
 

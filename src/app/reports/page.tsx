@@ -132,10 +132,10 @@ export default function ReportsPage() {
 
       <div className="card space-y-3">
         <div>
-          <h2 className="font-semibold text-sm">Despesas do mês</h2>
+          <h2 className="font-semibold text-sm">Resumo do mês</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Lista enxuta de cada despesa do mês (descrição e valor) + totais — inclui recorrências ainda não
-            lançadas, pronta pra compartilhar.
+            Lista enxuta de cada receita e despesa do mês (descrição e valor) + o saldo final (receitas − despesas) —
+            inclui recorrências ainda não lançadas, pronta pra compartilhar.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">

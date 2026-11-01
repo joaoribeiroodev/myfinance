@@ -133,8 +133,7 @@ export default function DashboardPage() {
             />
             {summary.hasProjectedRecurring && (
               <p className="text-[11px] text-white/60 mt-1">
-                Receitas/despesas abaixo incluem recorrências deste mês ainda não lançadas (projetado) — o saldo acima
-                conta só o que já é real
+                Inclui contas já geradas mas ainda não pagas e recorrências deste mês ainda não lançadas (projetado)
               </p>
             )}
             {summary.reservedInGoals > 0 && (

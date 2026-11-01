@@ -201,23 +201,24 @@ export async function reportRoutes(app: FastifyInstance) {
       workbook.creator = "MyFinance";
       workbook.created = new Date();
 
-      const sheet = workbook.addWorksheet("Despesas do Mês");
-      styleTitleRow(sheet, `Despesas ${report.monthLabel}`, 2);
+      const sheet = workbook.addWorksheet("Resumo do Mês");
+      styleTitleRow(sheet, `Resumo ${report.monthLabel}`, 2);
       sheet.columns = [
         { key: "description", width: 38 },
         { key: "amount", width: 18 },
       ];
 
-      // Formatação uniforme pra todo item — lançado de verdade ou ainda
-      // projetado de uma recorrência — pra não parecer inconsistente (antes
-      // misturava negrito/cinza/itálico só pros projetados, e um "+" que
-      // duplicava quando a própria descrição já começava com "+").
+      // Mesma cor da receita/despesa do resto do app (verde/vermelho) — só
+      // muda a cor por tipo, formatação uniforme entre lançado de verdade e
+      // projetado de uma recorrência (antes misturava negrito/cinza/itálico
+      // só pros projetados, e um "+" que duplicava quando a própria
+      // descrição já começava com "+").
       for (const item of report.items) {
         const row = sheet.addRow({
           description: item.description,
           amount: item.amount,
         });
-        row.getCell("amount").font = { color: { argb: THEME.expense600 } };
+        row.getCell("amount").font = { color: { argb: item.type === "INCOME" ? THEME.income600 : THEME.expense600 } };
         row.getCell("amount").numFmt = '"R$" #,##0.00';
       }
 
@@ -257,14 +258,17 @@ export async function reportRoutes(app: FastifyInstance) {
       .fillColor("#6e04ba")
       .fontSize(20)
       .font("Helvetica-Bold")
-      .text(`Despesas ${report.monthLabel}`);
+      .text(`Resumo ${report.monthLabel}`);
     doc.moveDown(1.2);
 
-    // mesma formatação uniforme do xlsx — todo item com o mesmo estilo,
-    // lançado de verdade ou ainda projetado de uma recorrência
-    doc.fontSize(12).font("Helvetica").fillColor("#1a1625");
+    // mesma cor verde/vermelho do resto do app pra diferenciar receita de
+    // despesa na lista — formatação uniforme entre lançado de verdade e
+    // projetado de uma recorrência
+    doc.fontSize(12).font("Helvetica");
     for (const item of report.items) {
-      doc.text(`${item.description} - ${formatBRL(item.amount)}`);
+      doc
+        .fillColor(item.type === "INCOME" ? "#06b377" : "#e81a4a")
+        .text(`${item.description} - ${formatBRL(item.amount)}`);
     }
 
     doc.moveDown(1.5);
