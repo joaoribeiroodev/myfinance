@@ -82,6 +82,19 @@ export default function ReportsPage() {
       const res = await fetch(`${API_URL}/reports/export/month-summary?${qs.toString()}`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
+      // Se o backend respondeu com erro (ex: geração do PDF falhou), o
+      // corpo vem como JSON de erro, não o arquivo — sem essa checagem o
+      // navegador salvava esse JSON com extensão .pdf/.xlsx, um arquivo
+      // "corrompido" que nem abre (em vez de mostrar o erro de verdade).
+      if (!res.ok) {
+        let message = "Não foi possível gerar o relatório. Tente novamente.";
+        try {
+          const data = await res.json();
+          if (data?.error) message = data.error;
+        } catch {}
+        alert(message);
+        return;
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

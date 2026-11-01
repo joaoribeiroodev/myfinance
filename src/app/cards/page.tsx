@@ -24,6 +24,7 @@ interface CreditCard {
     available: number;
     usagePercent: number;
     cycleEnd: string;
+    isOpenCycle?: boolean;
   };
 }
 
@@ -265,7 +266,11 @@ export default function CardsPage() {
                   </div>
 
                   <p className="text-2xl font-extrabold tabular-nums mt-4">{currency(c.currentInvoice.committed)}</p>
-                  <p className="text-xs text-white/60">fatura atual · fecha {fullDate(c.currentInvoice.cycleEnd)}</p>
+                  <p className="text-xs text-white/60">
+                    {c.currentInvoice.isOpenCycle
+                      ? `fatura em aberto · fecha ${fullDate(c.currentInvoice.cycleEnd)}`
+                      : `fatura atual · fecha ${fullDate(c.currentInvoice.cycleEnd)}`}
+                  </p>
 
                   <div className="mt-3 h-2 rounded-full bg-white/15 overflow-hidden">
                     <div

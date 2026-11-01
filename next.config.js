@@ -10,6 +10,17 @@ const nextConfig = {
       dynamic: 0,
       static: 180,
     },
+    // Com output: "standalone", o Next só copia pro bundle final os
+    // arquivos que consegue rastrear estaticamente a partir dos imports.
+    // O pdfkit carrega as métricas das fontes padrão (Helvetica etc.) em
+    // tempo de execução via fs.readFileSync com um caminho montado
+    // dinamicamente (path.join(__dirname, ...)) — isso não é rastreável
+    // estaticamente, então esses arquivos ficavam de fora do deploy e o
+    // PDFDocument quebrava no ar (ENOENT), gerando um PDF corrompido/vazio
+    // que o navegador não conseguia abrir. Força a inclusão manual.
+    outputFileTracingIncludes: {
+      "/api/**/*": ["./node_modules/pdfkit/js/data/**/*"],
+    },
   },
 };
 

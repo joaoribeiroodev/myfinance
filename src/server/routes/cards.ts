@@ -50,6 +50,19 @@ export function invoiceCycle(referenceMonth: Date, closingDay: number, opts: { r
   return { start: start.startOf("day").toDate(), end: end.endOf("day").toDate() };
 }
 
+// Ciclo seguinte ao que acabou de fechar (o que está acumulando compras
+// novas agora, ainda sem data de fechamento chegada). Usada quando a
+// fatura que fechou por último não teve nenhuma compra (comum logo depois
+// do fechamento, quando tudo que foi gasto recentemente ainda está no
+// ciclo novo) — mostrar "R$ 0,00" ali enquanto o gasto de verdade está no
+// ciclo aberto confundia mais do que ajudava.
+function nextInvoiceCycle(closedEnd: Date, closingDay: number) {
+  const prevEnd = dayjs(closedEnd);
+  const nextEnd = prevEnd.add(1, "month").date(Math.min(closingDay, prevEnd.add(1, "month").daysInMonth()));
+  const start = prevEnd.add(1, "day");
+  return { start: start.startOf("day").toDate(), end: nextEnd.endOf("day").toDate() };
+}
+
 // Soma as recorrências de despesa ativas vinculadas ao cartão que ainda não
 // geraram uma conta/lançamento real dentro do ciclo atual (lastGeneratedAt
 // nunca rodou pra esse mês, ou rodou mas a Bill/Transaction ainda não
@@ -122,7 +135,26 @@ export async function cardRoutes(app: FastifyInstance) {
     // já devolve a fatura atual (ciclo corrente) de cada cartão, pra listagem
     const withCurrentInvoice = await Promise.all(
       cards.map(async (c) => {
-        const { start, end } = invoiceCycle(new Date(), c.closingDay, { rollForward: true });
+        let { start, end } = invoiceCycle(new Date(), c.closingDay, { rollForward: true });
+        let isOpenCycle = false;
+
+        // A fatura que acabou de fechar pode não ter nenhuma compra —
+        // normal logo depois do fechamento, quando tudo que foi gasto
+        // recentemente ainda caiu no ciclo novo (ainda em aberto). Nesse
+        // caso mostra o ciclo aberto em andamento no lugar, senão a tela
+        // mostra "R$ 0,00" enquanto o cartão claramente tem gasto recente
+        // (visível só no "limite comprometido").
+        const closedCommitted = await sumCardCommitment(c.id, { gte: start, lte: end });
+        if (closedCommitted === 0) {
+          const openCycle = nextInvoiceCycle(end, c.closingDay);
+          const openCommitted = await sumCardCommitment(c.id, { gte: openCycle.start, lte: openCycle.end });
+          if (openCommitted > 0) {
+            start = openCycle.start;
+            end = openCycle.end;
+            isOpenCycle = true;
+          }
+        }
+
         const [realCommitted, realLimitUsed, projected] = await Promise.all([
           // "committed": só o valor QUE FECHA nessa fatura (o que você paga
           // esse mês) — usado pra exibir o valor grande do card.
@@ -149,6 +181,7 @@ export async function cardRoutes(app: FastifyInstance) {
           currentInvoice: {
             cycleStart: start,
             cycleEnd: end,
+            isOpenCycle,
             committed,
             limitUsed,
             available: Math.max(0, limit - limitUsed),
@@ -205,7 +238,26 @@ export async function cardRoutes(app: FastifyInstance) {
     if (!card) return reply.code(404).send({ error: "Cartão não encontrado" });
 
     const ref = month ? dayjs(month).toDate() : new Date();
-    const { start, end } = invoiceCycle(ref, card.closingDay, { rollForward: !month });
+    let { start, end } = invoiceCycle(ref, card.closingDay, { rollForward: !month });
+    let isOpenCycle = false;
+
+    // Mesma lógica da listagem: só troca pro ciclo aberto automaticamente
+    // quando ninguém pediu um mês específico (navegação explícita sempre
+    // mostra o ciclo pedido, mesmo que esteja zerado) e a fatura que
+    // acabou de fechar não teve nenhuma compra.
+    if (!month) {
+      const closedCommitted = await sumCardCommitment(id, { gte: start, lte: end });
+      if (closedCommitted === 0) {
+        const openCycle = nextInvoiceCycle(end, card.closingDay);
+        const openCommitted = await sumCardCommitment(id, { gte: openCycle.start, lte: openCycle.end });
+        if (openCommitted > 0) {
+          start = openCycle.start;
+          end = openCycle.end;
+          isOpenCycle = true;
+        }
+      }
+    }
+
     const isOpenScope = scope === "open";
     const dateWhere = isOpenScope ? { gte: start } : { gte: start, lte: end };
 
@@ -277,6 +329,7 @@ export async function cardRoutes(app: FastifyInstance) {
       card,
       cycleStart: start,
       cycleEnd: end,
+      isOpenCycle,
       dueDate: dayjs(end).date(card.dueDay).add(card.dueDay <= card.closingDay ? 1 : 0, "month").toISOString(),
       committed,
       limitUsed,
