@@ -42,7 +42,7 @@ export async function buildMonthReport(userId: string, monthParam?: string): Pro
   const start = ref.startOf("month").toDate();
   const end = ref.endOf("month").toDate();
 
-  const [incomeAgg, expenseAgg, expenseTransactions, incomeTransactions] = await Promise.all([
+  const [incomeAgg, expenseAgg, expenseTransactions, incomeTransactions, monthBills] = await Promise.all([
     prisma.transaction.aggregate({
       where: { userId, type: "INCOME", date: { gte: start, lte: end } },
       _sum: { amount: true },
@@ -62,17 +62,30 @@ export async function buildMonthReport(userId: string, monthParam?: string): Pro
       where: { userId, type: "INCOME", date: { gte: start, lte: end } },
       select: { description: true, amount: true },
     }),
+    // contas (Bill) pendentes/vencidas que vencem nesse mês — mesma
+    // definição de "despesa do mês" usada no dashboard: já comprometidas,
+    // só ainda não pagas, então contam igual a um lançamento real.
+    prisma.bill.findMany({
+      where: { userId, dueDate: { gte: start, lte: end }, status: { in: ["PENDING", "OVERDUE"] } },
+      select: { description: true, amount: true, type: true },
+    }),
   ]);
 
   // mesma projeção de recorrências/renda fixa do dashboard e do bot, pra
   // o relatório incluir despesas previstas pro mês que ainda não viraram
   // um lançamento real (ex: assinatura que só é cobrada dia 20).
-  const { totalIncome, totalExpense, projectedItems } = await projectMonth(
+  const projection = await projectMonth(
     userId,
     ref,
     Number(incomeAgg._sum.amount ?? 0),
     Number(expenseAgg._sum.amount ?? 0)
   );
+  const { projectedItems } = projection;
+
+  const pendingBillsIncome = monthBills.filter((b) => b.type === "INCOME");
+  const pendingBillsExpense = monthBills.filter((b) => b.type === "EXPENSE");
+  const totalIncome = projection.totalIncome + pendingBillsIncome.reduce((s, b) => s + Number(b.amount), 0);
+  const totalExpense = projection.totalExpense + pendingBillsExpense.reduce((s, b) => s + Number(b.amount), 0);
 
   // Receitas primeiro (maior valor primeiro), depois despesas (maior valor
   // primeiro) — separa visualmente o que entra do que sai em vez de
@@ -81,12 +94,18 @@ export async function buildMonthReport(userId: string, monthParam?: string): Pro
     ...incomeTransactions
       .map((t) => ({ description: t.description, amount: Number(t.amount), projected: false, type: "INCOME" as const }))
       .sort((a, b) => b.amount - a.amount),
+    ...pendingBillsIncome
+      .map((b) => ({ description: b.description, amount: Number(b.amount), projected: false, type: "INCOME" as const }))
+      .sort((a, b) => b.amount - a.amount),
     ...projectedItems
       .filter((p) => p.type === "INCOME")
       .map((p) => ({ description: p.description, amount: p.amount, projected: true, type: "INCOME" as const }))
       .sort((a, b) => b.amount - a.amount),
     ...expenseTransactions
       .map((t) => ({ description: t.description, amount: Number(t.amount), projected: false, type: "EXPENSE" as const }))
+      .sort((a, b) => b.amount - a.amount),
+    ...pendingBillsExpense
+      .map((b) => ({ description: b.description, amount: Number(b.amount), projected: false, type: "EXPENSE" as const }))
       .sort((a, b) => b.amount - a.amount),
     ...projectedItems
       .filter((p) => p.type === "EXPENSE")
